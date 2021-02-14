@@ -3,6 +3,7 @@ package wc
 import (
 	"encoding/hex"
 	"encoding/json"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/libs4go/errors"
@@ -81,13 +82,27 @@ func newWCTunnel(params tun4go.Params) (*wcTunnel, error) {
 		return nil, errors.Wrap(err, "unmarshal clientinfo param error")
 	}
 
+	buff, ok = params["chainId"]
+
+	if err != nil {
+		return nil, errors.Wrap(ErrParams, "expect chainId param")
+	}
+
+	chainID, err := strconv.Atoi(buff)
+
+	if err != nil {
+		return nil, errors.Wrap(err, "parse chainId %s error", buff)
+	}
+
 	return &wcTunnel{
+		Logger:   slf4go.Get("wc-tunnel"),
 		Self:     uuid.NewString(),
 		Status:   Disconnected,
 		Accounts: []string{account},
 		SelfInfo: ci,
 		URL:      u,
 		Key:      key,
+		ChainID:  int64(chainID),
 	}, nil
 }
 
@@ -103,6 +118,8 @@ func fromContext(context []byte) (*wcTunnel, error) {
 }
 
 func (tunnel *wcTunnel) send(topic string, data []byte) ([]byte, error) {
+
+	tunnel.D("send msg {@msg}", string(data))
 
 	var msg *socketMessage = nil
 
@@ -148,6 +165,10 @@ func (tunnel *wcTunnel) Send(msg []byte, transport tun4go.Transport) error {
 		return errors.Wrap(ErrStatus, "send msg with invalid status %s", tunnel.Status)
 	}
 
+	return tunnel.doSend(msg, transport)
+}
+
+func (tunnel *wcTunnel) doSend(msg []byte, transport tun4go.Transport) error {
 	buff, err := tunnel.send(tunnel.Peer, msg)
 
 	if err != nil {
@@ -257,6 +278,34 @@ func (tunnel *wcTunnel) Context() ([]byte, error) {
 
 // Disconnect send disconnect msg to peer
 func (tunnel *wcTunnel) Disconnect(transport tun4go.Transport) error {
+
+	rsp := &sessionUpdate{
+		ChainID:  tunnel.ChainID,
+		Approved: false,
+		Accounts: tunnel.Accounts,
+	}
+
+	rpc := &jsonRPCRequest{
+		ID:      1,
+		JSONRPC: "2.0",
+		Params:  []interface{}{rsp},
+		Method:  "wc_sessionUpdate",
+	}
+
+	buff, err := json.Marshal(rpc)
+
+	if err != nil {
+		return errors.Wrap(err, "marshal sessionResponse error")
+	}
+
+	err = tunnel.doSend(buff, transport)
+
+	if err != nil {
+		return err
+	}
+
+	tunnel.Status = Disconnected
+
 	return nil
 }
 
@@ -402,19 +451,8 @@ func (tunnel *wcTunnel) approve(id int64, approved bool, transport tun4go.Transp
 		return errors.Wrap(err, "marshal sessionResponse error")
 	}
 
-	buff, err = tunnel.send(tunnel.Peer, buff)
+	return tunnel.doSend(buff, transport)
 
-	if err != nil {
-		return errors.Wrap(err, "encrypt sessionResponse error")
-	}
-
-	err = transport.Write(buff)
-
-	if err != nil {
-		return errors.Wrap(err, "write session response to transport error")
-	}
-
-	return nil
 }
 
 func (tunnel *wcTunnel) readJSONRPCRequest(buff []byte) (*jsonRPCRequest, error) {

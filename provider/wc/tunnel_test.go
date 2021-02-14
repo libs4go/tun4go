@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/libs4go/errors"
@@ -16,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var url = "wc:fa854a0c-a88b-487d-8b25-88253b1a822f@1?bridge=https%3A%2F%2Fbridge.walletconnect.org&key=52661274329b1ec505c3ec29a870740145f7a9722b99b50f9c04c28164975ea5"
+var url = "wc:15d9f1ea-ea1f-4e37-ac66-e4b33d7d130d@1?bridge=https%3A%2F%2Fbridge.walletconnect.org&key=88f3350f6f374e65b2a82f8682759342e7471cbcd9f3c4d9af58819c11f73870"
 
 var transport *websockTransport
 
@@ -121,6 +122,7 @@ func TestTunnel(t *testing.T) {
 		"clientinfo": ci,
 		"account":    "0x120f18F5B8EdCaA3c083F9464c57C11D81a9E549",
 		"url":        url,
+		"chainId":    "1",
 	})
 
 	require.NoError(t, err)
@@ -133,7 +135,35 @@ func TestTunnel(t *testing.T) {
 
 	require.NoError(t, err)
 
-	println(buff)
+	println(string(buff))
+}
+
+func TestDisconnectTunnel(t *testing.T) {
+
+	defer slf4go.Sync()
+
+	ci := marshal(&clientInfo{})
+
+	tunnel, err := tun4go.New("wc", tun4go.Params{
+		"clientinfo": ci,
+		"account":    "0x120f18F5B8EdCaA3c083F9464c57C11D81a9E549",
+		"url":        url,
+		"chainId":    "1",
+	})
+
+	require.NoError(t, err)
+
+	err = tunnel.Connect(transport)
+
+	require.NoError(t, err)
+
+	println("=============")
+
+	time.Sleep(5 * time.Second)
+
+	err = tunnel.Disconnect(transport)
+
+	require.NoError(t, err)
 }
 
 func marshal(v interface{}) string {
